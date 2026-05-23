@@ -230,17 +230,25 @@ function App() {
 
       const generated = response.data.ai_questions;
 
-      const splitQuestions = Array.isArray(generated)
-        ? generated.filter(
-            (q) =>
-              q.trim().length > 15 &&
-              !q.includes("Technical Interview Questions") &&
-              !q.includes("HR Interview Questions") &&
-              !q.includes("Project-Based Questions") &&
-              !q.includes("---") &&
-              !q.includes("Good luck")
-          )
-        : generated
+      const safeQuestions = Array.isArray(generated)
+        ? generated
+            .map((q) =>
+              typeof q === "string"
+                ? q
+                : q.question || JSON.stringify(q)
+            )
+            .filter(
+              (q) =>
+                q &&
+                q.trim().length > 15 &&
+                !q.includes("Technical Interview Questions") &&
+                !q.includes("HR Interview Questions") &&
+                !q.includes("Project-Based Questions") &&
+                !q.includes("---") &&
+                !q.includes("Good luck")
+            )
+        : typeof generated === "string"
+        ? generated
             .split("\n")
             .filter(
               (q) =>
@@ -250,9 +258,10 @@ function App() {
                 !q.includes("Project-Based Questions") &&
                 !q.includes("---") &&
                 !q.includes("Good luck")
-            );
+            )
+        : [];
 
-      setQuestions(splitQuestions);
+      setQuestions(safeQuestions);
       const codingResponse = await axios.post(
       "https://ai-mock-interview-ji82.onrender.com/generate-coding-question",
       {
