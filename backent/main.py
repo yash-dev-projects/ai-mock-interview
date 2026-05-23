@@ -17,7 +17,7 @@ import pdfplumber
 import json
 import random
 
-from google import genai
+import google.generativeai as genai
 
 from database import SessionLocal, engine
 from models import User, Interview

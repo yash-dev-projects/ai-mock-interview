@@ -1,4 +1,4 @@
-fastapi
+fastapi[all]
 uvicorn
 python-multipart
 google-generativeai
@@ -11,3 +11,6 @@ reportlab
 PyPDF2
 python-dotenv
 pdfplumber
+requests
+pydantic
+google-genai
