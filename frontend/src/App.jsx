@@ -10,6 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+const generated =
 function App() {
 
   // =========================
@@ -227,20 +228,21 @@ function App() {
         formData
       );
 
-      const generated =
-        response.data.ai_questions;
+      const generated = response.data.ai_questions;
 
-      const splitQuestions = generated
-        .split("\n")
-        .filter(
-          (q) =>
-            q.trim().length > 15 &&
-            !q.includes("Technical Interview Questions") &&
-            !q.includes("HR Interview Questions") &&
-            !q.includes("Project-Based Questions") &&
-            !q.includes("---") &&
-            !q.includes("Good luck")
-        );
+      const splitQuestions = Array.isArray(generated)
+        ? generated
+        : generated
+            .split("\n")
+            .filter(
+              (q) =>
+                q.trim().length > 15 &&
+                !q.includes("Technical Interview Questions") &&
+                !q.includes("HR Interview Questions") &&
+                !q.includes("Project-Based Questions") &&
+                !q.includes("---") &&
+                !q.includes("Good luck")
+            );
 
       setQuestions(splitQuestions);
       const codingResponse = await axios.post(
