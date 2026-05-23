@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import "./App.css";
 import Editor from "@monaco-editor/react";
@@ -10,6 +10,41 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  "https://ai-mock-interview-ji82.onrender.com";
+
+const apiUrl = (path) => `${API_BASE_URL}${path}`;
+
+const normalizeStringArray = (value) => {
+  const list = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+    ? value.split("\n")
+    : [];
+
+  return list
+    .map((item) => {
+      if (typeof item === "string") {
+        return item;
+      }
+
+      if (item && typeof item === "object") {
+        return item.question || item.skill || JSON.stringify(item);
+      }
+
+      return "";
+    })
+    .map((item) => item.replace(/^\s*(?:[-*]|\d+[.)])\s*/, "").trim())
+    .filter((item, index, array) => item && array.indexOf(item) === index);
+};
+
+const toScore = (value) => {
+  const score = Number(value);
+
+  return Number.isFinite(score) ? score : 0;
+};
 
 function App() {
 
@@ -40,7 +75,6 @@ function App() {
   const [questions, setQuestions] = useState([]);
 
   const [answers, setAnswers] = useState([]);
-  const [history, setHistory] = useState([]);
 
   const [bestScore, setBestScore] =
     useState(0);
@@ -80,18 +114,19 @@ function App() {
     useState("");
   const [optimizedCode, setOptimizedCode] =
     useState("");
+
   // =========================
   // CLEAN TEXT
   // =========================
   const cleanTextForSpeech = (text) => {
 
-    return text
+    return String(text || "")
       .replace(/#{1,6}\s?/g, "")
       .replace(/\*\*/g, "")
       .replace(/\*/g, "")
       .replace(/---/g, "")
       .replace(/`/g, "")
-      .replace(/[>|•]/g, "")
+      .replace(/[>|]/g, "")
       .replace(/\n/g, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -173,7 +208,7 @@ function App() {
       try {
 
         const response = await axios.post(
-          "https://ai-mock-interview-ji82.onrender.com/evaluate-answer",
+          apiUrl("/evaluate-answer"),
           {
             question: questionText,
             answer: transcript,
@@ -187,7 +222,7 @@ function App() {
           {
             question: questionText,
             answer: transcript,
-            score: response.data.score,
+            score: toScore(response.data.score),
             feedback: response.data.feedback,
             improvements: response.data.improvements,
             ideal_answer: response.data.ideal_answer,
@@ -224,46 +259,25 @@ function App() {
       setLoading(true);
 
       const response = await axios.post(
-        "https://ai-mock-interview-ji82.onrender.com/upload-resume",
+        apiUrl("/upload-resume"),
         formData
       );
 
-      const generated = response.data.ai_questions;
-
-      const safeQuestions = Array.isArray(generated)
-        ? generated
-            .map((q) =>
-              typeof q === "string"
-                ? q
-                : q.question || JSON.stringify(q)
-            )
-            .filter(
-              (q) =>
-                q &&
-                q.trim().length > 15 &&
-                !q.includes("Technical Interview Questions") &&
-                !q.includes("HR Interview Questions") &&
-                !q.includes("Project-Based Questions") &&
-                !q.includes("---") &&
-                !q.includes("Good luck")
-            )
-        : typeof generated === "string"
-        ? generated
-            .split("\n")
-            .filter(
-              (q) =>
-                q.trim().length > 15 &&
-                !q.includes("Technical Interview Questions") &&
-                !q.includes("HR Interview Questions") &&
-                !q.includes("Project-Based Questions") &&
-                !q.includes("---") &&
-                !q.includes("Good luck")
-            )
-        : [];
+      const safeQuestions = normalizeStringArray(
+        response.data.ai_questions
+      ).filter(
+        (q) =>
+          q.length > 10 &&
+          !q.includes("Technical Interview Questions") &&
+          !q.includes("HR Interview Questions") &&
+          !q.includes("Project-Based Questions") &&
+          !q.includes("---") &&
+          !q.includes("Good luck")
+      );
 
       setQuestions(safeQuestions);
       const codingResponse = await axios.post(
-      "https://ai-mock-interview-ji82.onrender.com/generate-coding-question",
+      apiUrl("/generate-coding-question"),
       {
         resume: response.data.resume_text,
         company: companyMode,
@@ -277,11 +291,11 @@ function App() {
         : codingResponse.data.question
     );
     setAtsScore(
-      response.data.ats_score || 75
+      toScore(response.data.ats_score)
     );
 
     setMissingSkills(
-      response.data.missing_skills || []
+      normalizeStringArray(response.data.missing_skills)
     );
 
     } catch (error) {
@@ -304,7 +318,7 @@ function App() {
     try {
 
       const response = await axios.post(
-        "https://ai-mock-interview-ji82.onrender.com/signup",
+        apiUrl("/signup"),
         {
           name,
           email,
@@ -314,7 +328,7 @@ function App() {
 
       setMessage(response.data.message);
 
-    } catch (error) {
+    } catch {
 
       setMessage("Signup failed");
     }
@@ -328,12 +342,17 @@ function App() {
     try {
 
       const response = await axios.post(
-        "https://ai-mock-interview-ji82.onrender.com/login",
+        apiUrl("/login"),
         {
           email,
           password,
         }
       );
+
+      if (!response.data.token) {
+        setMessage(response.data.message || "Login failed");
+        return;
+      }
 
       localStorage.setItem(
         "token",
@@ -352,25 +371,23 @@ function App() {
 
       setIsAuthenticated(true);
 
-    } catch (error) {
+    } catch {
 
       setMessage("Login failed");
     }
   };
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
 
     try {
 
       const response = await axios.get(
-        `https://ai-mock-interview-ji82.onrender.com/history/${
+        apiUrl(`/history/${
           localStorage.getItem("email")
-        }`
+        }`)
       );
 
-      setHistory(response.data);
-
       const scores = response.data.map(
-        (item) => item.score
+        (item) => toScore(item.score)
       );
 
       if (scores.length > 0) {
@@ -396,7 +413,15 @@ function App() {
 
       console.log(error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      const timer = setTimeout(fetchHistory, 0);
+
+      return () => clearTimeout(timer);
+    }
+  }, [isAuthenticated, fetchHistory]);
 
   // =========================
   // LOGOUT
@@ -456,12 +481,13 @@ const analyticsData = answers.map(
   // FILTER QUESTIONS
   // =========================
   const filteredQuestions = questions.filter((q) => {
+    const question = String(q || "");
 
     if (selectedCategory === "All") {
       return true;
     }
 
-    return q
+    return question
       .toLowerCase()
       .includes(selectedCategory.toLowerCase());
   });
@@ -492,7 +518,7 @@ const analyticsData = answers.map(
               <button
                 onClick={() => {
                   window.open(
-                    `https://ai-mock-interview-ji82.onrender.com/download-report/${localStorage.getItem("email")}`
+                    apiUrl(`/download-report/${localStorage.getItem("email")}`)
                   );
                 }}
                 className="bg-green-600 hover:bg-green-700 px-5 py-2 rounded-xl"
@@ -508,7 +534,7 @@ const analyticsData = answers.map(
             </h1>
 
             <p className="text-center text-gray-400 mb-10">
-              Upload Resume → AI Questions → Voice Answers
+              Upload Resume - AI Questions - Voice Answers
             </p>
 
             {/* SCORE CARD */}
@@ -721,7 +747,7 @@ const analyticsData = answers.map(
                   }`}
                 >
 
-                  🤖
+                  AI
 
                 </div>
 
@@ -849,7 +875,7 @@ const analyticsData = answers.map(
                 language={language}
                 theme="vs-dark"
                 value={code}
-                onChange={(value) => setCode(value)}
+                onChange={(value) => setCode(value || "")}
               />
 
               <button
@@ -860,7 +886,7 @@ const analyticsData = answers.map(
                     // RUN USER CODE
                     const response =
                       await axios.post(
-                        "https://ai-mock-interview-ji82.onrender.com/run-code",
+                        apiUrl("/run-code"),
                         {
                           code,
                           language,
@@ -874,7 +900,7 @@ const analyticsData = answers.map(
                     // AI REVIEW
                     const reviewResponse =
                       await axios.post(
-                        "https://ai-mock-interview-ji82.onrender.com/evaluate-code",
+                        apiUrl("/evaluate-code"),
                         {
                           question:
                             codeQuestion,

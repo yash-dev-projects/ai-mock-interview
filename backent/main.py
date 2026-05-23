@@ -1,8 +1,6 @@
 from fastapi.responses import FileResponse
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-import uuid
-from fastapi import Request
+from fastapi import HTTPException, Request
 import requests
 from dotenv import load_dotenv
 load_dotenv()
@@ -16,6 +14,8 @@ import os
 import pdfplumber
 import json
 import random
+import ast
+import re
 
 import google.generativeai as genai
 
@@ -97,49 +97,187 @@ class AnswerRequest(BaseModel):
     answer: str
     email: str
 
+
+class CodingQuestionRequest(BaseModel):
+    resume: str = ""
+    company: str = "Google"
+
+
+class CodeEvaluationRequest(BaseModel):
+    question: str
+    code: str
+
+
+def strip_code_fences(text):
+    text = (text or "").strip()
+    text = re.sub(r"^```(?:json|python)?", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"```$", "", text).strip()
+    return text
+
+
+def extract_json_text(text):
+    text = strip_code_fences(text)
+    start_positions = [pos for pos in [text.find("{"), text.find("[")] if pos != -1]
+
+    if not start_positions:
+        return text
+
+    start = min(start_positions)
+    end = max(text.rfind("}"), text.rfind("]"))
+
+    if end > start:
+        return text[start:end + 1]
+
+    return text
+
+
+def parse_json_object(text, fallback):
+    cleaned = extract_json_text(text)
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        try:
+            return ast.literal_eval(cleaned)
+        except (ValueError, SyntaxError):
+            return fallback
+
+
+def clean_string_list(value):
+    if isinstance(value, str):
+        value = value.splitlines()
+
+    if not isinstance(value, list):
+        return []
+
+    cleaned = []
+
+    for item in value:
+        if isinstance(item, dict):
+            item = item.get("question") or item.get("skill") or json.dumps(item)
+
+        item = str(item).strip()
+        item = re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", item).strip()
+
+        if item and item not in cleaned:
+            cleaned.append(item)
+
+    return cleaned
+
+
+def clamp_score(value):
+    try:
+        score = int(float(value))
+    except (TypeError, ValueError):
+        score = 0
+
+    return max(0, min(100, score))
+
+
+def clamp_ten_score(value, default=0):
+    match = re.search(r"\d+(?:\.\d+)?", str(value))
+
+    if not match:
+        return default
+
+    return max(0, min(10, int(float(match.group()))))
+
+
+def fallback_resume_analysis(resume_text):
+    target_skills = [
+        "Python",
+        "JavaScript",
+        "React",
+        "FastAPI",
+        "SQL",
+        "REST API",
+        "Git",
+        "Data Structures",
+    ]
+    resume_lower = resume_text.lower()
+    found_count = sum(1 for skill in target_skills if skill.lower() in resume_lower)
+    missing_skills = [
+        skill for skill in target_skills
+        if skill.lower() not in resume_lower
+    ][:5]
+    ats_score = clamp_score(45 + found_count * 7 + min(len(resume_text) // 250, 15))
+
+    return {
+        "questions": [
+            "Tell me about yourself and the strongest project on your resume.",
+            "Which technical skill from your resume are you most confident using?",
+            "Explain one project architecture decision you made and why.",
+            "Describe a difficult bug you fixed and how you found the root cause.",
+            "How do you prioritize tasks when deadlines are close?",
+            "What would you improve in your latest project if you had more time?",
+        ],
+        "ats_score": ats_score,
+        "missing_skills": missing_skills,
+    }
+
 # =============================
 # GENERATE AI QUESTIONS
 # =============================
 
-def generate_ai_questions(resume_text):
+def generate_resume_analysis(resume_text):
 
     prompt = f"""
-    You are an AI interviewer.
+    You are an AI interviewer and ATS resume reviewer.
 
-    Analyze this resume and generate:
+    Analyze this resume and return ONLY valid JSON. No markdown.
 
-    1. Technical interview questions
-    2. HR interview questions
-    3. Project-based questions
+    JSON format:
+    {{
+      "questions": [
+        "question 1",
+        "question 2"
+      ],
+      "ats_score": 78,
+      "missing_skills": [
+        "skill 1",
+        "skill 2"
+      ]
+    }}
+
+    Requirements:
+    - questions must be a JSON array of 8 to 10 plain strings.
+    - include technical, HR, and project-based questions.
+    - ats_score must be an integer from 0 to 100 based on resume relevance,
+      clarity, skills, projects, and experience.
+    - missing_skills must be a JSON array of skills that would improve this
+      resume for software engineering interviews.
 
     Resume:
     {resume_text}
     """
+    fallback = fallback_resume_analysis(resume_text)
 
     try:
+        response = model.generate_content(
+            prompt,
+            generation_config={"response_mime_type": "application/json"},
+        )
+        data = parse_json_object(response.text, fallback)
 
-        response = model.generate_content(prompt)
+        if isinstance(data, list):
+            data = {"questions": data}
 
-        return response.text
-    except Exception as e:
-        print("Gemini Error:", e)
-
-        fallback_questions = [
-            "Reverse an array",
-            "Check palindrome string",
-            "Find maximum element in array",
-            "Two Sum Problem",
-            "Binary Search implementation",
-            "FizzBuzz problem",
-            "Valid Parentheses",
-            "Merge two sorted arrays",
-            "Find duplicate elements",
-            "Factorial using recursion"
-        ]
+        questions = clean_string_list(data.get("questions") or data.get("ai_questions"))
+        missing_skills = clean_string_list(data.get("missing_skills"))
 
         return {
-            "question": random.choice(fallback_questions)
+            "questions": questions or fallback["questions"],
+            "ats_score": clamp_score(data.get("ats_score", fallback["ats_score"])),
+            "missing_skills": missing_skills or fallback["missing_skills"],
         }
+
+    except Exception as e:
+        print("Gemini Error:", e)
+        return fallback
+
+
+def generate_ai_questions(resume_text):
+    return generate_resume_analysis(resume_text)["questions"]
 
     
 
@@ -177,20 +315,19 @@ def evaluate_answer(question, answer):
     }}
     """
 
-    response = model.generate_content(prompt)
+    response = model.generate_content(
+        prompt,
+        generation_config={"response_mime_type": "application/json"},
+    )
 
     text = response.text.strip()
 
     try:
 
-        text = text.replace("```json", "")
-        text = text.replace("```", "")
-        text = text.strip()
-
-        data = json.loads(text)
+        data = parse_json_object(text, {})
 
         return {
-            "score": data.get("score", 0),
+            "score": clamp_ten_score(data.get("score"), 0),
             "feedback": data.get("feedback", ""),
             "improvements": data.get("improvements", ""),
             "ideal_answer": data.get("ideal_answer", "")
@@ -215,51 +352,48 @@ def evaluate_answer(question, answer):
 @app.post("/upload-resume")
 async def upload_resume(file: UploadFile = File(...)):
 
-    file_path = os.path.join(
-        UPLOAD_FOLDER,
-        file.filename
-    )
+    safe_filename = os.path.basename(file.filename)
+    file_path = os.path.join(UPLOAD_FOLDER, safe_filename)
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
     extracted_text = ""
 
-    with pdfplumber.open(file_path) as pdf:
+    try:
+        with pdfplumber.open(file_path) as pdf:
 
-        for page in pdf.pages:
+            for page in pdf.pages:
 
-            text = page.extract_text()
+                text = page.extract_text()
 
-            if text:
-                extracted_text += text + "\n"
+                if text:
+                    extracted_text += text + "\n"
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not read PDF resume: {e}",
+        )
 
-    ai_questions = generate_ai_questions(
-        extracted_text
-    )
+    analysis = generate_resume_analysis(extracted_text)
 
     return {
-        "filename": file.filename,
+        "filename": safe_filename,
         "message": "Resume uploaded successfully",
-        "ai_questions": ai_questions,
+        "ai_questions": clean_string_list(analysis["questions"]),
         "resume_text": extracted_text,
-        "ats_score": random.randint(70, 95),
-
-        "missing_skills": [
-            "React",
-            "MongoDB",
-            "REST API"
-        ]
+        "ats_score": analysis["ats_score"],
+        "missing_skills": clean_string_list(analysis["missing_skills"]),
     }
 
 # =============================
 # GENERATE CODING QUESTION API
 # =============================
 @app.post("/generate-coding-question")
-async def generate_coding_question(data: dict):
+async def generate_coding_question(data: CodingQuestionRequest):
 
-    resume_text = data.get("resume", "")
-    company = data.get("company")
+    resume_text = data.resume
+    company = data.company
 
     prompt = f"""
     Generate ONE coding interview question.
@@ -289,17 +423,27 @@ async def generate_coding_question(data: dict):
     Stack
     Queue
 
-    Return ONLY question text.
+    Return ONLY valid JSON. No markdown.
+
+    JSON format:
+    {{
+      "question": "one complete coding question"
+    }}
     """
 
     try:
 
-        response = model.generate_content(prompt)
+        response = model.generate_content(
+            prompt,
+            generation_config={"response_mime_type": "application/json"},
+        )
 
-        question = response.text.strip()
+        data = parse_json_object(response.text, {})
+        question = data.get("question") if isinstance(data, dict) else response.text
+        question = strip_code_fences(str(question)).strip()
 
         return {
-            "question": question
+            "question": question or "Write a function to solve a two-sum style array problem."
         }
 
     except Exception as e:
@@ -379,7 +523,7 @@ async def run_code(request: Request):
 
     data = await request.json()
 
-    code = data.get("code")
+    code = data.get("code", "")
 
     language = data.get("language")
 
@@ -390,8 +534,13 @@ async def run_code(request: Request):
         "java": "java"
     }
 
+    piston_language = language_map.get(language)
+
+    if not piston_language:
+        raise HTTPException(status_code=400, detail="Unsupported language")
+
     payload = {
-        "language": language_map.get(language),
+        "language": piston_language,
         "version": "*",
         "files": [
             {
@@ -421,13 +570,13 @@ async def run_code(request: Request):
         }
 
 # =============================
-# LOGIN API
+# EVALUATE CODE API
 # =============================
 @app.post("/evaluate-code")
-async def evaluate_code(data: dict):
+async def evaluate_code(data: CodeEvaluationRequest):
 
-    question = data.get("question")
-    code = data.get("code")
+    question = data.question
+    code = data.code
 
     prompt = f"""
     You are a FAANG coding interviewer.
@@ -438,53 +587,29 @@ async def evaluate_code(data: dict):
     Candidate Code:
     {code}
 
-    Give response in this format:
+    Return ONLY valid JSON. No markdown.
 
-    SCORE: x/10
-
-    FEEDBACK:
-    short feedback
-
-    OPTIMIZED_CODE:
-    improved code
+    JSON format:
+    {{
+      "score": 7,
+      "feedback": "short feedback",
+      "optimized_code": "improved code"
+    }}
     """
 
     try:
 
-        response = model.generate_content(prompt)
+        response = model.generate_content(
+            prompt,
+            generation_config={"response_mime_type": "application/json"},
+        )
 
-        text = response.text
-
-        score = "7"
-
-        feedback = text
-
-        optimized_code = code
-
-        if "SCORE:" in text:
-            score = (
-                text.split("SCORE:")[1]
-                .split("/10")[0]
-                .strip()
-            )
-
-        if "FEEDBACK:" in text:
-            feedback = (
-                text.split("FEEDBACK:")[1]
-                .split("OPTIMIZED_CODE:")[0]
-                .strip()
-            )
-
-        if "OPTIMIZED_CODE:" in text:
-            optimized_code = (
-                text.split("OPTIMIZED_CODE:")[1]
-                .strip()
-            )
+        data = parse_json_object(response.text, {})
 
         return {
-            "score": score,
-            "feedback": feedback,
-            "optimized_code": optimized_code
+            "score": clamp_ten_score(data.get("score"), 7),
+            "feedback": data.get("feedback", "Code reviewed successfully."),
+            "optimized_code": data.get("optimized_code", code),
         }
 
     except Exception as e:
@@ -535,6 +660,34 @@ async def login(data: LoginRequest):
         "token": token,
         "name": user.name,
         "email": user.email
+    }
+
+
+@app.post("/signup")
+async def signup(data: SignupRequest):
+
+    db = SessionLocal()
+
+    existing_user = db.query(User).filter(
+        User.email == data.email
+    ).first()
+
+    if existing_user:
+        db.close()
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    user = User(
+        name=data.name,
+        email=data.email,
+        password=hash_password(data.password)
+    )
+
+    db.add(user)
+    db.commit()
+    db.close()
+
+    return {
+        "message": "Signup successful"
     }
 @app.get("/history/{email}")
 async def get_history(email: str):
