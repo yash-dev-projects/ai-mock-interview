@@ -10,3 +10,4 @@ bcrypt
 reportlab
 PyPDF2
 python-dotenv
+pdfplumber
