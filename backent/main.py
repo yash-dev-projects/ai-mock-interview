@@ -63,10 +63,11 @@ app.add_middleware(
 # GEMINI API
 # =============================
 
-client = genai.Client(
+genai.configure(
     api_key=os.getenv("GEMINI_API_KEY")
 )
 
+model = genai.GenerativeModel("gemini-1.5-flash")
 # =============================
 # UPLOAD FOLDER
 # =============================
@@ -117,10 +118,7 @@ def generate_ai_questions(resume_text):
 
     try:
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
 
         return response.text
     except Exception as e:
@@ -179,10 +177,7 @@ def evaluate_answer(question, answer):
     }}
     """
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt
-    )
+    response = model.generate_content(prompt)
 
     text = response.text.strip()
 
@@ -299,10 +294,7 @@ async def generate_coding_question(data: dict):
 
     try:
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
 
         question = response.text.strip()
 
@@ -459,10 +451,7 @@ async def evaluate_code(data: dict):
 
     try:
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
 
         text = response.text
 
