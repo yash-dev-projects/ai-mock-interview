@@ -106,6 +106,7 @@ class CodingQuestionRequest(BaseModel):
 class CodeEvaluationRequest(BaseModel):
     question: str
     code: str
+    language: str = "javascript"
 
 
 def strip_code_fences(text):
@@ -165,6 +166,56 @@ def clean_string_list(value):
     return cleaned
 
 
+def clean_question_bank(value):
+    if not isinstance(value, list):
+        return []
+
+    sections = {
+        "technical",
+        "dsa",
+        "hr",
+        "system design",
+        "projects",
+        "company-specific",
+    }
+    cleaned = []
+
+    for index, item in enumerate(value):
+        if isinstance(item, str):
+            question = item.strip()
+            section = "Technical"
+            difficulty = "Medium"
+        elif isinstance(item, dict):
+            question = str(item.get("question", "")).strip()
+            section = str(item.get("section", "Technical")).strip()
+            difficulty = str(item.get("difficulty", "Medium")).strip()
+        else:
+            continue
+
+        if not question:
+            continue
+
+        normalized_section = section.lower()
+
+        if normalized_section not in sections:
+            section = "Technical"
+
+        cleaned.append({
+            "id": index + 1,
+            "question": question,
+            "section": section,
+            "difficulty": difficulty,
+        })
+
+    return cleaned
+
+
+def list_or_default(value, fallback):
+    cleaned = clean_string_list(value)
+
+    return cleaned or fallback
+
+
 def clamp_score(value):
     try:
         score = int(float(value))
@@ -202,17 +253,86 @@ def fallback_resume_analysis(resume_text):
     ][:5]
     ats_score = clamp_score(45 + found_count * 7 + min(len(resume_text) // 250, 15))
 
+    question_bank = [
+        {
+            "section": "Technical",
+            "difficulty": "Medium",
+            "question": "Walk me through the most technically complex project on your resume and the tradeoffs you made.",
+        },
+        {
+            "section": "Technical",
+            "difficulty": "Medium",
+            "question": "Which backend or frontend skill from your resume are you strongest in, and how have you used it in production-like work?",
+        },
+        {
+            "section": "DSA",
+            "difficulty": "Medium",
+            "question": "How would you solve a two-sum variation if the input stream is too large to hold fully in memory?",
+        },
+        {
+            "section": "DSA",
+            "difficulty": "Easy",
+            "question": "Explain the difference between arrays, hash maps, stacks, and queues using interview examples.",
+        },
+        {
+            "section": "HR",
+            "difficulty": "Easy",
+            "question": "Tell me about yourself in a way that connects your background to this role.",
+        },
+        {
+            "section": "HR",
+            "difficulty": "Medium",
+            "question": "Describe a time you received critical feedback and changed your work approach.",
+        },
+        {
+            "section": "System Design",
+            "difficulty": "Medium",
+            "question": "Design a mock interview platform that uploads resumes, generates questions, records answers, and shows progress analytics.",
+        },
+        {
+            "section": "Projects",
+            "difficulty": "Medium",
+            "question": "Pick one resume project and explain the architecture, data flow, and one bug you solved.",
+        },
+        {
+            "section": "Projects",
+            "difficulty": "Hard",
+            "question": "If your main project had 10,000 daily users tomorrow, what would break first and how would you fix it?",
+        },
+        {
+            "section": "Company-specific",
+            "difficulty": "Medium",
+            "question": "Why are you a strong fit for this company, and which resume evidence proves it?",
+        },
+    ]
+
     return {
-        "questions": [
-            "Tell me about yourself and the strongest project on your resume.",
-            "Which technical skill from your resume are you most confident using?",
-            "Explain one project architecture decision you made and why.",
-            "Describe a difficult bug you fixed and how you found the root cause.",
-            "How do you prioritize tasks when deadlines are close?",
-            "What would you improve in your latest project if you had more time?",
-        ],
+        "questions": [item["question"] for item in question_bank],
+        "question_bank": question_bank,
         "ats_score": ats_score,
         "missing_skills": missing_skills,
+        "resume_suggestions": [
+            "Add measurable impact to each project bullet.",
+            "Move the strongest technical projects above generic coursework.",
+            "Add deployment, testing, and performance details where applicable.",
+        ],
+        "career_roadmap": [
+            "Sharpen core DSA patterns for 20 minutes daily.",
+            "Prepare project stories using situation, action, result structure.",
+            "Add one production-ready feature to your strongest project.",
+            "Practice company-specific mock interviews twice per week.",
+        ],
+        "strengths": [
+            "Hands-on project experience",
+            "Full-stack learning momentum",
+            "Interview-ready technical keywords",
+        ],
+        "weaknesses": missing_skills[:3] or ["Add deeper outcome metrics"],
+        "confidence_analysis": "Likely improving; practice concise first-minute answers to sound more decisive.",
+        "communication_analysis": "Use structured answers with context, implementation detail, result, and reflection.",
+        "personality_insights": "Position yourself as curious, builder-oriented, and coachable.",
+        "daily_challenge": "Record a 90-second answer about your strongest project and improve it once.",
+        "xp_reward": 120,
     }
 
 # =============================
@@ -222,30 +342,58 @@ def fallback_resume_analysis(resume_text):
 def generate_resume_analysis(resume_text):
 
     prompt = f"""
-    You are an AI interviewer and ATS resume reviewer.
+    You are a senior AI interview coach, ATS reviewer, and career strategist.
 
     Analyze this resume and return ONLY valid JSON. No markdown.
 
     JSON format:
     {{
       "questions": [
-        "question 1",
-        "question 2"
+        "plain question 1"
+      ],
+      "question_bank": [
+        {{
+          "section": "Technical",
+          "difficulty": "Medium",
+          "question": "deeply personalized question"
+        }}
       ],
       "ats_score": 78,
       "missing_skills": [
         "skill 1",
         "skill 2"
-      ]
+      ],
+      "resume_suggestions": [
+        "specific improvement"
+      ],
+      "career_roadmap": [
+        "next action"
+      ],
+      "strengths": [
+        "strength"
+      ],
+      "weaknesses": [
+        "weakness"
+      ],
+      "confidence_analysis": "short insight",
+      "communication_analysis": "short insight",
+      "personality_insights": "short insight",
+      "daily_challenge": "one daily challenge",
+      "xp_reward": 120
     }}
 
     Requirements:
-    - questions must be a JSON array of 8 to 10 plain strings.
-    - include technical, HR, and project-based questions.
+    - Generate 20 to 30 deeply resume-aware questions.
+    - question_bank must include these sections:
+      Technical, DSA, HR, System Design, Projects, Company-specific.
+    - Include Easy, Medium, and Hard difficulty levels.
+    - Make questions feel specific to the candidate's projects, skills,
+      experience level, and gaps.
     - ats_score must be an integer from 0 to 100 based on resume relevance,
       clarity, skills, projects, and experience.
-    - missing_skills must be a JSON array of skills that would improve this
-      resume for software engineering interviews.
+    - missing_skills, resume_suggestions, career_roadmap, strengths, and
+      weaknesses must be practical JSON arrays.
+    - daily_challenge should be motivating and specific.
 
     Resume:
     {resume_text}
@@ -262,13 +410,40 @@ def generate_resume_analysis(resume_text):
         if isinstance(data, list):
             data = {"questions": data}
 
+        question_bank = clean_question_bank(data.get("question_bank", []))
         questions = clean_string_list(data.get("questions") or data.get("ai_questions"))
+        questions = questions or [item["question"] for item in question_bank]
         missing_skills = clean_string_list(data.get("missing_skills"))
 
         return {
             "questions": questions or fallback["questions"],
+            "question_bank": question_bank or fallback["question_bank"],
             "ats_score": clamp_score(data.get("ats_score", fallback["ats_score"])),
             "missing_skills": missing_skills or fallback["missing_skills"],
+            "resume_suggestions": list_or_default(
+                data.get("resume_suggestions"),
+                fallback["resume_suggestions"],
+            ),
+            "career_roadmap": list_or_default(
+                data.get("career_roadmap"),
+                fallback["career_roadmap"],
+            ),
+            "strengths": list_or_default(data.get("strengths"), fallback["strengths"]),
+            "weaknesses": list_or_default(data.get("weaknesses"), fallback["weaknesses"]),
+            "confidence_analysis": data.get(
+                "confidence_analysis",
+                fallback["confidence_analysis"],
+            ),
+            "communication_analysis": data.get(
+                "communication_analysis",
+                fallback["communication_analysis"],
+            ),
+            "personality_insights": data.get(
+                "personality_insights",
+                fallback["personality_insights"],
+            ),
+            "daily_challenge": data.get("daily_challenge", fallback["daily_challenge"]),
+            "xp_reward": int(data.get("xp_reward", fallback["xp_reward"])),
         }
 
     except Exception as e:
@@ -311,7 +486,11 @@ def evaluate_answer(question, answer):
       "score": 8,
       "feedback": "Good communication and confidence.",
       "improvements": "Add more technical depth.",
-      "ideal_answer": "A professional ideal answer here."
+      "ideal_answer": "A professional ideal answer here.",
+      "confidence_score": 7,
+      "communication_score": 8,
+      "personality_insight": "Calm and structured, but should show more ownership.",
+      "next_question": "A follow-up question adapted to this answer."
     }}
     """
 
@@ -330,7 +509,11 @@ def evaluate_answer(question, answer):
             "score": clamp_ten_score(data.get("score"), 0),
             "feedback": data.get("feedback", ""),
             "improvements": data.get("improvements", ""),
-            "ideal_answer": data.get("ideal_answer", "")
+            "ideal_answer": data.get("ideal_answer", ""),
+            "confidence_score": clamp_ten_score(data.get("confidence_score"), 5),
+            "communication_score": clamp_ten_score(data.get("communication_score"), 5),
+            "personality_insight": data.get("personality_insight", ""),
+            "next_question": data.get("next_question", "")
         }
 
     except Exception as e:
@@ -342,7 +525,11 @@ def evaluate_answer(question, answer):
             "score": 5,
             "feedback": "Answer evaluated successfully.",
             "improvements": "Try adding more details.",
-            "ideal_answer": "Provide a more structured answer."
+            "ideal_answer": "Provide a more structured answer.",
+            "confidence_score": 5,
+            "communication_score": 5,
+            "personality_insight": "Shows effort, but needs clearer structure.",
+            "next_question": "Can you give a concrete example with measurable impact?"
         }
 
 # =============================
@@ -381,9 +568,19 @@ async def upload_resume(file: UploadFile = File(...)):
         "filename": safe_filename,
         "message": "Resume uploaded successfully",
         "ai_questions": clean_string_list(analysis["questions"]),
+        "question_bank": analysis["question_bank"],
         "resume_text": extracted_text,
         "ats_score": analysis["ats_score"],
         "missing_skills": clean_string_list(analysis["missing_skills"]),
+        "resume_suggestions": analysis["resume_suggestions"],
+        "career_roadmap": analysis["career_roadmap"],
+        "strengths": analysis["strengths"],
+        "weaknesses": analysis["weaknesses"],
+        "confidence_analysis": analysis["confidence_analysis"],
+        "communication_analysis": analysis["communication_analysis"],
+        "personality_insights": analysis["personality_insights"],
+        "daily_challenge": analysis["daily_challenge"],
+        "xp_reward": analysis["xp_reward"],
     }
 
 # =============================
@@ -396,7 +593,7 @@ async def generate_coding_question(data: CodingQuestionRequest):
     company = data.company
 
     prompt = f"""
-    Generate ONE coding interview question.
+    Generate ONE LeetCode-style coding interview question.
 
     Company:
     {company}
@@ -427,7 +624,22 @@ async def generate_coding_question(data: CodingQuestionRequest):
 
     JSON format:
     {{
-      "question": "one complete coding question"
+      "title": "Problem title",
+      "difficulty": "Medium",
+      "question": "one complete coding question",
+      "examples": [
+        "Input: ... Output: ..."
+      ],
+      "test_cases": [
+        {{"input": "...", "expected": "..."}}
+      ],
+      "hidden_tests": 4,
+      "hints": [
+        "hint 1"
+      ],
+      "constraints": [
+        "constraint"
+      ]
     }}
     """
 
@@ -443,7 +655,14 @@ async def generate_coding_question(data: CodingQuestionRequest):
         question = strip_code_fences(str(question)).strip()
 
         return {
-            "question": question or "Write a function to solve a two-sum style array problem."
+            "title": data.get("title", "Adaptive Coding Challenge"),
+            "difficulty": data.get("difficulty", "Medium"),
+            "question": question or "Write a function to solve a two-sum style array problem.",
+            "examples": clean_string_list(data.get("examples")),
+            "test_cases": data.get("test_cases", []),
+            "hidden_tests": int(data.get("hidden_tests", 3)),
+            "hints": clean_string_list(data.get("hints")),
+            "constraints": clean_string_list(data.get("constraints")),
         }
 
     except Exception as e:
@@ -467,7 +686,17 @@ async def generate_coding_question(data: CodingQuestionRequest):
         import random
 
         return {
-            "question": random.choice(fallback_questions)
+            "title": "Fallback Coding Challenge",
+            "difficulty": "Medium",
+            "question": random.choice(fallback_questions),
+            "examples": ["Input: [1, 2, 2, 3] Output: [2]"],
+            "test_cases": [
+                {"input": "[1, 2, 2, 3]", "expected": "[2]"},
+                {"input": "[4, 5, 6]", "expected": "[]"},
+            ],
+            "hidden_tests": 3,
+            "hints": ["Start with a hash map or set.", "Think about time complexity."],
+            "constraints": ["Handle empty input.", "Optimize for O(n) time when possible."],
         }
     
 
@@ -478,8 +707,6 @@ async def generate_coding_question(data: CodingQuestionRequest):
 
 @app.post("/evaluate-answer")
 async def evaluate(data: AnswerRequest):
-
-    print(data)
 
     try:
 
@@ -496,7 +723,11 @@ async def evaluate(data: AnswerRequest):
             "score": 5,
             "feedback": "AI server busy right now.",
             "improvements": "Please try again later.",
-            "ideal_answer": "Temporary server issue."
+            "ideal_answer": "Temporary server issue.",
+            "confidence_score": 5,
+            "communication_score": 5,
+            "personality_insight": "Try again to unlock detailed personality insights.",
+            "next_question": ""
         }
 
     db = SessionLocal()
@@ -577,6 +808,7 @@ async def evaluate_code(data: CodeEvaluationRequest):
 
     question = data.question
     code = data.code
+    language = data.language
 
     prompt = f"""
     You are a FAANG coding interviewer.
@@ -587,13 +819,19 @@ async def evaluate_code(data: CodeEvaluationRequest):
     Candidate Code:
     {code}
 
+    Language:
+    {language}
+
     Return ONLY valid JSON. No markdown.
 
     JSON format:
     {{
       "score": 7,
       "feedback": "short feedback",
-      "optimized_code": "improved code"
+      "optimized_code": "improved code",
+      "time_complexity": "O(n)",
+      "space_complexity": "O(n)",
+      "hint": "next improvement hint"
     }}
     """
 
@@ -610,6 +848,9 @@ async def evaluate_code(data: CodeEvaluationRequest):
             "score": clamp_ten_score(data.get("score"), 7),
             "feedback": data.get("feedback", "Code reviewed successfully."),
             "optimized_code": data.get("optimized_code", code),
+            "time_complexity": data.get("time_complexity", "Not analyzed"),
+            "space_complexity": data.get("space_complexity", "Not analyzed"),
+            "hint": data.get("hint", "Review edge cases and simplify the implementation."),
         }
 
     except Exception as e:
@@ -619,7 +860,10 @@ async def evaluate_code(data: CodeEvaluationRequest):
         return {
             "score": "5",
             "feedback": "Code works but AI review unavailable.",
-            "optimized_code": code
+            "optimized_code": code,
+            "time_complexity": "Not analyzed",
+            "space_complexity": "Not analyzed",
+            "hint": "Try again for a detailed AI hint.",
         }
 
 @app.post("/login")
