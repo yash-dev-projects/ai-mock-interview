@@ -263,7 +263,9 @@ function App() {
     
 
     setCodeQuestion(
-      codingResponse.data.question
+      Array.isArray(codingResponse.data.question)
+        ? codingResponse.data.question.join("\n")
+        : codingResponse.data.question
     );
     setAtsScore(
       response.data.ats_score || 75
