@@ -10,7 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-const generated =
+
 function App() {
 
   // =========================
@@ -231,7 +231,15 @@ function App() {
       const generated = response.data.ai_questions;
 
       const splitQuestions = Array.isArray(generated)
-        ? generated
+        ? generated.filter(
+            (q) =>
+              q.trim().length > 15 &&
+              !q.includes("Technical Interview Questions") &&
+              !q.includes("HR Interview Questions") &&
+              !q.includes("Project-Based Questions") &&
+              !q.includes("---") &&
+              !q.includes("Good luck")
+          )
         : generated
             .split("\n")
             .filter(
