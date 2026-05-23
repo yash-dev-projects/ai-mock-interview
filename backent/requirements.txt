@@ -9,3 +9,4 @@ python-jose
 bcrypt
 reportlab
 PyPDF2
+python-dotenv
