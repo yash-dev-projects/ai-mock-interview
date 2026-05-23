@@ -10,7 +10,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-
 function App() {
 
   // =========================
@@ -173,7 +172,7 @@ function App() {
       try {
 
         const response = await axios.post(
-          "http://127.0.0.1:8000/evaluate-answer",
+          "https://ai-mock-interview-ji82.onrender.com/evaluate-answer",
           {
             question: questionText,
             answer: transcript,
@@ -224,7 +223,7 @@ function App() {
       setLoading(true);
 
       const response = await axios.post(
-        "http://127.0.0.1:8000/upload-resume",
+        "https://ai-mock-interview-ji82.onrender.com/upload-resume",
         formData
       );
 
@@ -245,7 +244,7 @@ function App() {
 
       setQuestions(splitQuestions);
       const codingResponse = await axios.post(
-      "http://127.0.0.1:8000/generate-coding-question",
+      "https://ai-mock-interview-ji82.onrender.com/generate-coding-question",
       {
         resume: response.data.resume_text,
         company: companyMode,
@@ -284,7 +283,7 @@ function App() {
     try {
 
       const response = await axios.post(
-        "http://127.0.0.1:8000/signup",
+        "https://ai-mock-interview-ji82.onrender.com/signup",
         {
           name,
           email,
@@ -308,7 +307,7 @@ function App() {
     try {
 
       const response = await axios.post(
-        "http://127.0.0.1:8000/login",
+        "https://ai-mock-interview-ji82.onrender.com/login",
         {
           email,
           password,
@@ -342,7 +341,7 @@ function App() {
     try {
 
       const response = await axios.get(
-        `http://127.0.0.1:8000/history/${
+        `https://ai-mock-interview-ji82.onrender.com/history/${
           localStorage.getItem("email")
         }`
       );
@@ -472,7 +471,7 @@ const analyticsData = answers.map(
               <button
                 onClick={() => {
                   window.open(
-                    `http://127.0.0.1:8000/download-report/${localStorage.getItem("email")}`
+                    `https://ai-mock-interview-ji82.onrender.com/download-report/${localStorage.getItem("email")}`
                   );
                 }}
                 className="bg-green-600 hover:bg-green-700 px-5 py-2 rounded-xl"
@@ -840,7 +839,7 @@ const analyticsData = answers.map(
                     // RUN USER CODE
                     const response =
                       await axios.post(
-                        "http://127.0.0.1:8000/run-code",
+                        "https://ai-mock-interview-ji82.onrender.com/run-code",
                         {
                           code,
                           language,
@@ -854,7 +853,7 @@ const analyticsData = answers.map(
                     // AI REVIEW
                     const reviewResponse =
                       await axios.post(
-                        "http://127.0.0.1:8000/evaluate-code",
+                        "https://ai-mock-interview-ji82.onrender.com/evaluate-code",
                         {
                           question:
                             codeQuestion,
